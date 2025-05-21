@@ -26,7 +26,7 @@
   <script>
     (function(){
       const rows = 6, cols = 6;
-      const piecesPerPlayer = 4; // 말 개수
+      const piecesPerPlayer = 4;
       let phase = 'placement';
       let placementCount = 0;
       const players = [{ positions: [] }, { positions: [] }];
@@ -99,22 +99,22 @@
       function cellClick(e){
         const r = +e.currentTarget.dataset.r;
         const c = +e.currentTarget.dataset.c;
-        if(phase==='placement') handlePlacement(r,c);
-        else if(phase==='move' && !awaitingWall) handleMove(r,c);
+        if(phase === 'placement') handlePlacement(r,c);
+        else if(phase === 'move' && !awaitingWall) handleMove(r,c);
       }
 
       function handlePlacement(r,c){
         if(players.flatMap(p=>p.positions).some(p=>p.r===r&&p.c===c)){
-          messageDiv.textContent='이미 말이 있습니다.'; return;
+          messageDiv.textContent = '이미 말이 있습니다.'; return;
         }
         players[currentPlayer].positions.push({r,c});
         placementCount++;
         drawBoard();
         if(placementCount >= piecesPerPlayer*2){
-          phase='move'; currentPlayer=0;
+          phase = 'move'; currentPlayer = 0;
         } else {
-          // 다음 플레이어, 만약 현재 플레이어가 아직 배치 가능 수에 도달하지 않았다면 연속 배치
-          if(players[(currentPlayer+1)%2].positions.length < piecesPerPlayer) currentPlayer = (currentPlayer+1)%2;
+          const next = (currentPlayer+1)%2;
+          if(players[next].positions.length < piecesPerPlayer) currentPlayer = next;
         }
         updateInfo();
       }
@@ -122,130 +122,103 @@
       function handleMove(r,c){
         if(!selectedPiece){
           const idx = players[currentPlayer].positions.findIndex(p=>p.r===r&&p.c===c);
-          if(idx<0){ messageDiv.textContent='내 말을 선택하세요.'; return; }
-          selectedPiece={idx,r,c}; highlightMoves(); messageDiv.textContent='이동할 칸을 선택하세요.';
+          if(idx < 0){ messageDiv.textContent='내 말을 선택하세요.'; return; }
+          selectedPiece = {idx, r, c};
+          highlightMoves(); messageDiv.textContent = '이동할 칸을 선택하세요.';
         } else {
-          const moves = getAllowedMoves(selectedPiece.r,selectedPiece.c);
+          const moves = getAllowedMoves(selectedPiece.r, selectedPiece.c);
           if(!moves.some(m=>m.r===r&&m.c===c)){
             messageDiv.textContent='유효하지 않은 이동입니다.'; return;
           }
-          players[currentPlayer].positions[selectedPiece.idx]={r,c};
-          drawBoard(); selectedDest={r,c}; selectedPiece=null;
-          awaitingWall=true; startTimer(); showWallControls(); updateInfo();
+          players[currentPlayer].positions[selectedPiece.idx] = {r, c};
+          drawBoard(); selectedDest = {r, c}; selectedPiece = null;
+          awaitingWall = true; startTimer(); showWallControls(); updateInfo();
         }
       }
 
       function getAllowedMoves(r,c){
-        const moves = new Set();
-        const add=(mr,mc)=>{ if(mr>=0&&mr<rows&&mc>=0&&mc<cols) moves.add(`${mr},${mc}`); };
-        // 제자리
+        const moves = new Set(); const add = (mr,mc)=>{ if(mr>=0&&mr<rows&&mc>=0&&mc<cols) moves.add(`${mr},${mc}`); };
+        const isOccupied = (rr,cc) => players.some(pl=>pl.positions.some(p=>p.r===rr&&p.c===cc));
         add(r,c);
-        // 직진 1~2칸
         [{dr:1,dc:0},{dr:-1,dc:0},{dr:0,dc:1},{dr:0,dc:-1}].forEach(d=>{
-          for(let step=1;step<=2;step++){
+          for(let step=1; step<=2; step++){
             const mr=r+d.dr*step, mc=c+d.dc*step;
             if(mr<0||mr>=rows||mc<0||mc>=cols) break;
             let blocked=false;
-            for(let s=1;s<=step;s++){
+            for(let s=1; s<=step; s++){
               const pr=r+d.dr*(s-1), pc=c+d.dc*(s-1);
-              if(d.dr!==0){ const wr=d.dr>0?pr+1:pr; if(horizontalWalls[wr][pc]){blocked=true;break;} }
-              else { const wc=d.dc>0?pc+1:pc; if(verticalWalls[pr][wc]){blocked=true;break;} }
+              if(d.dr){ const wr=d.dr>0?pr+1:pr; if(horizontalWalls[wr][pc]){ blocked=true; break; } }
+              else    { const wc=d.dc>0?pc+1:pc; if(verticalWalls[pr][wc]){ blocked=true; break; } }
             }
-            if(blocked) break; add(mr,mc);
+            if(blocked) break;
+            let occ=false;
+            for(let s=1; s<=step; s++){
+              const rr=r+d.dr*s, cc=c+d.dc*s;
+              if(isOccupied(rr,cc)){ occ=true; break; }
+            }
+            if(occ) break;
+            add(mr,mc);
           }
         });
-        // L자 이동
-        const pairs=[
-          [{dr:0,dc:1},{dr:1,dc:0}],[{dr:0,dc:1},{dr:-1,dc:0}],
-          [{dr:0,dc:-1},{dr:1,dc:0}],[{dr:0,dc:-1},{dr:-1,dc:0}],
-          [{dr:1,dc:0},{dr:0,dc:1}],[{dr:1,dc:0},{dr:0,dc:-1}],
-          [{dr:-1,dc:0},{dr:0,dc:1}],[{dr:-1,dc:0},{dr:0,dc:-1}]
-        ]; pairs.forEach(([f,s])=>{
-          const m1={r:r+f.dr,c:c+f.dc};
-          if(m1.r<0||m1.r>=rows||m1.c<0||m1.c>=cols) return;
+        [[{dr:0,dc:1},{dr:1,dc:0}],[{dr:0,dc:1},{dr:-1,dc:0}],
+         [{dr:0,dc:-1},{dr:1,dc:0}],[{dr:0,dc:-1},{dr:-1,dc:0}],
+         [{dr:1,dc:0},{dr:0,dc:1}],[{dr:1,dc:0},{dr:0,dc:-1}],
+         [{dr:-1,dc:0},{dr:0,dc:1}],[{dr:-1,dc:0},{dr:0,dc:-1}]
+        ].forEach(([f,s])=>{
+          const m1={r:r+f.dr,c:c+f.dc}; if(m1.r<0||m1.r>=rows||m1.c<0||m1.c>=cols) return;
           if(f.dr===0){ const vc=f.dc>0?verticalWalls[r][c+1]:verticalWalls[r][c]; if(vc) return; }
-          else { const hc=f.dr>0?horizontalWalls[r+1][c]:horizontalWalls[r][c]; if(hc) return; }
-          const m2={r:m1.r+s.dr,c:m1.c+s.dc};
-          if(m2.r<0||m2.r>=rows||m2.c<0||m2.c>=cols) return;
+          else{ const hc=f.dr>0?horizontalWalls[r+1][c]:horizontalWalls[r][c]; if(hc) return; }
+          if(isOccupied(m1.r,m1.c)) return;
+          const m2={r:m1.r+s.dr,c:m1.c+s.dc}; if(m2.r<0||m2.r>=rows||m2.c<0||m2.c>=cols) return;
           if(s.dr===0){ const vc2=s.dc>0?verticalWalls[m1.r][m1.c+1]:verticalWalls[m1.r][m1.c]; if(vc2) return; }
-          else { const hc2=s.dr>0?horizontalWalls[m1.r+1][m1.c]:horizontalWalls[m1.r][m1.c]; if(hc2) return; }
+          else{ const hc2=s.dr>0?horizontalWalls[m1.r+1][m1.c]:horizontalWalls[m1.r][m1.c]; if(hc2) return; }
+          if(isOccupied(m2.r,m2.c)) return;
           add(m2.r,m2.c);
         });
-        return Array.from(moves).map(s=>{const [mr,mc]=s.split(',');return{r:+mr,c:+mc};});
+        return [...moves].map(s=>{ const [mr,mc]=s.split(','); return {r:+mr,c:+mc}; });
       }
 
-      function highlightMoves(){
-        drawBoard(); getAllowedMoves(selectedPiece.r,selectedPiece.c)
-          .forEach(m=>{ document.getElementById(`cell-${m.r}-${m.c}`).style.backgroundColor='rgba(0,255,0,0.3)'; });
-      }
+      function highlightMoves(){ drawBoard(); getAllowedMoves(selectedPiece.r,selectedPiece.c).forEach(m=>{
+        document.getElementById(`cell-${m.r}-${m.c}`).style.backgroundColor='rgba(0,255,0,0.3)'; }); }
 
-      function getAvailableDirs(){
-        const dirs=[];
-        ['up','down','left','right'].forEach(d=>{
-          const {r,c}=selectedDest; let wr,wc,isH;
-          if(d==='up'){wr=r;wc=c;isH=true;} else if(d==='down'){wr=r+1;wc=c;isH=true;} 
-          else if(d==='left'){wr=r;wc=c;isH=false;} else {wr=r;wc=c+1;isH=false;}
-          if(isH? !horizontalWalls[wr][wc]: !verticalWalls[wr][wc]) dirs.push(d);
-        }); return dirs;
-      }
+      function getAvailableDirs(){ const dirs=[];
+        ['up','down','left','right'].forEach(d=>{ const {r,c}=selectedDest; let wr,wc,isH;
+          if(d==='up'){wr=r;wc=c;isH=true;} else if(d==='down'){wr=r+1;wc=c;isH=true;}
+          else if(d==='left'){wr=r;wc=c;isH=false;} else{wr=r;wc=c+1;isH=false;}
+          if(isH? !horizontalWalls[wr][wc] : !verticalWalls[wr][wc]) dirs.push(d);
+        }); return dirs; }
 
-      function showWallControls(){
-        controlsDiv.innerHTML='';
-        getAvailableDirs().forEach(d=>{
-          const btn=document.createElement('button'); btn.textContent=d; btn.className='button';
-          btn.addEventListener('click',()=>placeWall(d)); controlsDiv.appendChild(btn);
-        });
-      }
+      function showWallControls(){ controlsDiv.innerHTML=''; getAvailableDirs().forEach(d=>{
+        const btn=document.createElement('button'); btn.textContent=d; btn.className='button'; btn.addEventListener('click',()=>placeWall(d));
+        controlsDiv.appendChild(btn);
+      }); }
 
-      function placeWall(dir){
-        const {r,c}=selectedDest; let wr,wc,isH;
-        if(dir==='up'){wr=r;wc=c;isH=true;} else if(dir==='down'){wr=r+1;wc=c;isH=true;} 
-        else if(dir==='left'){wr=r;wc=c;isH=false;} else {wr=r;wc=c+1;isH=false;}
-        if(isH) horizontalWalls[wr][wc]=colors[currentPlayer]; else verticalWalls[wr][wc]=colors[currentPlayer];
-        endTurn();
-      }
+      function placeWall(dir){ const {r,c}=selectedDest; let wr,wc,isH;
+        if(dir==='up'){wr=r;wc=c;isH=true;}else if(dir==='down'){wr=r+1;wc=c;isH=true;}
+        else if(dir==='left'){wr=r;wc=c;isH=false;}else{wr=r;wc=c+1;isH=false;}
+        if(isH) horizontalWalls[wr][wc]=colors[currentPlayer]; else verticalWalls[wr][wc]=colors[currentPlayer]; endTurn(); }
 
-      function startTimer(){
-        timeLeft=90; timerDiv.textContent=`남은 시간: ${timeLeft}s`;
+      function startTimer(){ timeLeft=90; timerDiv.textContent=`남은 시간: ${timeLeft}s`;
         timerInterval=setInterval(()=>{ timeLeft--; timerDiv.textContent=`남은 시간: ${timeLeft}s`;
-          if(timeLeft<=0){ clearInterval(timerInterval); messageDiv.textContent='시간 초과! 랜덤 벽 설치'; autoPlaceWall(); }
-        },1000);
+          if(timeLeft<=0){ clearInterval(timerInterval); messageDiv.textContent='시간 초과! 랜덤 벽 설치'; autoPlaceWall(); } },1000);
       }
 
-      function autoPlaceWall(){ const avail=getAvailableDirs(); avail.length? placeWall(avail[Math.floor(Math.random()*avail.length)]): endTurn(); }
+      function autoPlaceWall(){ const avail=getAvailableDirs(); if(avail.length) placeWall(avail[Math.floor(Math.random()*avail.length)]); else endTurn(); }
+      function endTurn(){ clearInterval(timerInterval); awaitingWall=false; controlsDiv.innerHTML=''; drawBoard(); if(checkSeparation()) finishGame(); else { currentPlayer=1-currentPlayer; updateInfo(); } }
 
-      function endTurn(){
-        clearInterval(timerInterval); awaitingWall=false; controlsDiv.innerHTML=''; drawBoard();
-        if(checkSeparation()) finishGame(); else { currentPlayer=1-currentPlayer; updateInfo(); }
-      }
+      function checkSeparation(){ const visited=Array.from({length:rows},()=>Array(cols).fill(false)); const q=[players[0].positions[0]]; visited[q[0].r][q[0].c]=true;
+        while(q.length){ const {r,c}=q.shift(); [[-1,0],[1,0],[0,-1],[0,1]].forEach(d=>{ const nr=r+d[0],nc=c+d[1]; if(nr>=0&&nr<rows&&nc>=0&&nc<cols&&!visited[nr][nc]){
+          let blocked=false; if(d[0]){ const w=d[0]>0?horizontalWalls[r+1][c]:horizontalWalls[r][c]; if(w) blocked=true; } else { const w=d[1]>0?verticalWalls[r][c+1]:verticalWalls[r][c]; if(w) blocked=true; }
+          if(!blocked){ visited[nr][nc]=true; q.push({r:nr,c:nc}); } }}); }
+        return !players[1].positions.some(p=>visited[p.r][p.c]); }
 
-      function checkSeparation(){
-        const visited=Array.from({length:rows},()=>Array(cols).fill(false));
-        const q=[players[0].positions[0]]; visited[q[0].r][q[0].c]=true;
-        while(q.length){ const {r,c}=q.shift(); [[-1,0],[1,0],[0,-1],[0,1]].forEach(d=>{
-          const nr=r+d[0], nc=c+d[1]; if(nr>=0&&nr<rows&&nc>=0&&nc<cols&&!visited[nr][nc]){
-            let blocked=false; if(d[0]!==0){ const w=d[0]>0?horizontalWalls[r+1][c]:horizontalWalls[r][c]; if(w) blocked=true; }
-            else { const w=d[1]>0?verticalWalls[r][c+1]:verticalWalls[r][c]; if(w) blocked=true; }
-            if(!blocked){ visited[nr][nc]=true; q.push({r:nr,c:nc}); }
-          }}); }
-        return !players[1].positions.some(p=>visited[p.r][p.c]);
-      }
-
-      function finishGame(){
-        const visited=Array.from({length:rows},()=>Array(cols).fill(false));
-        const q=[players[0].positions[0]]; visited[q[0].r][q[0].c]=true;
-        while(q.length){ const {r,c}=q.shift(); [[-1,0],[1,0],[0,-1],[0,1]].forEach(d=>{
-          const nr=r+d[0], nc=c+d[1]; if(nr>=0&&nr<rows&&nc>=0&&nc<cols&&!visited[nr][nc]){
-            let blocked=false; if(d[0]!==0){ const w=d[0]>0?horizontalWalls[r+1][c]:horizontalWalls[r][c]; if(w) blocked=true; }
-            else { const w=d[1]>0?verticalWalls[r][c+1]:verticalWalls[r][c]; if(w) blocked=true; }
-            if(!blocked){ visited[nr][nc]=true; q.push({r:nr,c:nc}); }
-          } }); }
-        let region0=0; for(let i=0;i<rows;i++) for(let j=0;j<cols;j++) if(visited[i][j]) region0++;
-        const region1=rows*cols-region0; let result='';
-        if(region0>region1) result='플레이어 1 승리!'; else if(region1>region0) result='플레이어 2 승리!'; else result='무승부!';
-        messageDiv.textContent=`${result} (영역: 1=${region0}, 2=${region1})`;
-        turnDiv.textContent='게임 종료'; timerDiv.textContent='';
-      }
+      function finishGame(){ const visited=Array.from({length:rows},()=>Array(cols).fill(false)); const q=[players[0].positions[0]]; visited[q[0].r][q[0].c]=true;
+        while(q.length){ const {r,c}=q.shift(); [[-1,0],[1,0],[0,-1],[0,1]].forEach(d=>{ const nr=r+d[0],nc=c+d[1]; if(nr>=0&&nr<rows&&nc>=0&&nc<cols&&!visited[nr][nc]){
+          let blocked=false; if(d[0]){ const w=d[0]>0?horizontalWalls[r+1][c]:horizontalWalls[r][c]; if(w) blocked=true; } else { const w=d[1]>0?verticalWalls[r][c+1]:verticalWalls[r][c]; if(w) blocked=true; }
+          if(!blocked){ visited[nr][nc]=true; q.push({r:nr,c:nc}); } }}); }
+        let region0=0; for(let rr=0;rr<rows;rr++)for(let cc=0;cc<cols;cc++)if(visited[rr][cc]) region0++;
+        const region1=rows*cols-region0; let result=''; if(region0>region1) result='플레이어 1 승리!'; else if(region1>region0) result='플레이어 2 승리!'; else result='무승부!';
+        messageDiv.textContent=`${result} (영역: 1=${region0}, 2=${region1})`; turnDiv.textContent='게임 종료'; timerDiv.textContent=''; }
 
       initBoard(); drawBoard();
     })();
