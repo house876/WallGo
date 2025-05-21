@@ -26,6 +26,7 @@
   <script>
     (function(){
       const rows = 6, cols = 6;
+      const piecesPerPlayer = 4; // 말 개수
       let phase = 'placement';
       let placementCount = 0;
       const players = [{ positions: [] }, { positions: [] }];
@@ -64,7 +65,7 @@
 
       function updateInfo(){
         if(phase === 'placement'){
-          turnDiv.textContent = `배치 중: 플레이어 ${currentPlayer+1}`;
+          turnDiv.textContent = `배치 중: 플레이어 ${currentPlayer+1} (${players[currentPlayer].positions.length}/${piecesPerPlayer})`;
           timerDiv.textContent = '';
         } else {
           turnDiv.textContent = `턴: 플레이어 ${currentPlayer+1}`;
@@ -109,8 +110,12 @@
         players[currentPlayer].positions.push({r,c});
         placementCount++;
         drawBoard();
-        if(placementCount>=4){ phase='move'; currentPlayer=0; }
-        else currentPlayer=1-currentPlayer;
+        if(placementCount >= piecesPerPlayer*2){
+          phase='move'; currentPlayer=0;
+        } else {
+          // 다음 플레이어, 만약 현재 플레이어가 아직 배치 가능 수에 도달하지 않았다면 연속 배치
+          if(players[(currentPlayer+1)%2].positions.length < piecesPerPlayer) currentPlayer = (currentPlayer+1)%2;
+        }
         updateInfo();
       }
 
@@ -169,39 +174,50 @@
         return Array.from(moves).map(s=>{const [mr,mc]=s.split(',');return{r:+mr,c:+mc};});
       }
 
-      function highlightMoves(){ drawBoard(); getAllowedMoves(selectedPiece.r,selectedPiece.c)
-        .forEach(m=>{document.getElementById(`cell-${m.r}-${m.c}`).style.backgroundColor='rgba(0,255,0,0.3)';}); }
+      function highlightMoves(){
+        drawBoard(); getAllowedMoves(selectedPiece.r,selectedPiece.c)
+          .forEach(m=>{ document.getElementById(`cell-${m.r}-${m.c}`).style.backgroundColor='rgba(0,255,0,0.3)'; });
+      }
 
       function getAvailableDirs(){
         const dirs=[];
         ['up','down','left','right'].forEach(d=>{
-          const {r,c}=selectedDest; let wr, wc, isH;
-          if(d==='up'){wr=r;wc=c;isH=true;} else if(d==='down'){wr=r+1;wc=c;isH=true;}
+          const {r,c}=selectedDest; let wr,wc,isH;
+          if(d==='up'){wr=r;wc=c;isH=true;} else if(d==='down'){wr=r+1;wc=c;isH=true;} 
           else if(d==='left'){wr=r;wc=c;isH=false;} else {wr=r;wc=c+1;isH=false;}
           if(isH? !horizontalWalls[wr][wc]: !verticalWalls[wr][wc]) dirs.push(d);
         }); return dirs;
       }
 
-      function showWallControls(){ controlsDiv.innerHTML=''; getAvailableDirs()
-        .forEach(d=>{const btn=document.createElement('button');btn.textContent=d;btn.className='button';btn.addEventListener('click',()=>placeWall(d));controlsDiv.appendChild(btn);});}
+      function showWallControls(){
+        controlsDiv.innerHTML='';
+        getAvailableDirs().forEach(d=>{
+          const btn=document.createElement('button'); btn.textContent=d; btn.className='button';
+          btn.addEventListener('click',()=>placeWall(d)); controlsDiv.appendChild(btn);
+        });
+      }
 
       function placeWall(dir){
         const {r,c}=selectedDest; let wr,wc,isH;
-        if(dir==='up'){wr=r;wc=c;isH=true;}else if(dir==='down'){wr=r+1;wc=c;isH=true;}
-        else if(dir==='left'){wr=r;wc=c;isH=false;}else{wr=r;wc=c+1;isH=false;}
+        if(dir==='up'){wr=r;wc=c;isH=true;} else if(dir==='down'){wr=r+1;wc=c;isH=true;} 
+        else if(dir==='left'){wr=r;wc=c;isH=false;} else {wr=r;wc=c+1;isH=false;}
         if(isH) horizontalWalls[wr][wc]=colors[currentPlayer]; else verticalWalls[wr][wc]=colors[currentPlayer];
         endTurn();
       }
 
-      function startTimer(){ timeLeft=90; timerDiv.textContent=`남은 시간: ${timeLeft}s`;
+      function startTimer(){
+        timeLeft=90; timerDiv.textContent=`남은 시간: ${timeLeft}s`;
         timerInterval=setInterval(()=>{ timeLeft--; timerDiv.textContent=`남은 시간: ${timeLeft}s`;
-          if(timeLeft<=0){ clearInterval(timerInterval); messageDiv.textContent='시간 초과! 랜덤 벽 설치'; autoPlaceWall(); }} ,1000);
+          if(timeLeft<=0){ clearInterval(timerInterval); messageDiv.textContent='시간 초과! 랜덤 벽 설치'; autoPlaceWall(); }
+        },1000);
       }
 
       function autoPlaceWall(){ const avail=getAvailableDirs(); avail.length? placeWall(avail[Math.floor(Math.random()*avail.length)]): endTurn(); }
 
-      function endTurn(){ clearInterval(timerInterval); awaitingWall=false; controlsDiv.innerHTML=''; drawBoard();
-        if(checkSeparation()) finishGame(); else {currentPlayer=1-currentPlayer; updateInfo();} }
+      function endTurn(){
+        clearInterval(timerInterval); awaitingWall=false; controlsDiv.innerHTML=''; drawBoard();
+        if(checkSeparation()) finishGame(); else { currentPlayer=1-currentPlayer; updateInfo(); }
+      }
 
       function checkSeparation(){
         const visited=Array.from({length:rows},()=>Array(cols).fill(false));
