@@ -4,12 +4,24 @@
   <meta charset="UTF-8">
   <title>벽바둑</title>
   <style>
-    body { margin: 0; padding: 0; font-family: sans-serif; overflow: hidden; background: #000; }
+    /* 전체 폰트 크기 확대 */
+    html { font-size: 18px; }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: sans-serif;
+      background: none;
+    }
     #bg {
       position: fixed;
       top: 0; left: 0;
-      width: 100%; height: 100%;
-      background: url('background.png') center/cover no-repeat;
+      width: 100vw;
+      height: 100vh;
+      background-image: url('background.png');
+      background-position: center center;
+      background-size: cover;
+      background-repeat: no-repeat;
+      background-attachment: fixed;
       filter: blur(1px);
       z-index: -1;
     }
@@ -18,11 +30,27 @@
       z-index: 1;
       text-align: center;
       margin: 20px;
+      color: #000;
     }
-    #board {
-      display: inline-block;
+    #turn, #timer, #message {
+      margin-bottom: 5px;
+    }
+    #message { color: red; }
+
+    /* 중앙에 보드와 컨트롤러 배치 */
+    #game-container {
       position: relative;
       z-index: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* 바둑판 */
+    #board {
+      display: block;
+      margin: 0 auto;
     }
     table { border-collapse: collapse; }
     td {
@@ -37,223 +65,422 @@
       position: absolute;
       top: 10px; left: 10px;
     }
-    #controls {
-      position: relative;
-      z-index: 1;
-      margin-top: 10px;
+
+    /* d-pad 컨트롤러 */
+    #controls { margin-top: 20px; }
+    #dpad {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-rows: 1fr 1fr 1fr;
+      gap: 5px;
     }
-    .button { margin: 5px; padding: 5px 10px; }
-    #turn, #timer, #message { color: #000; margin-bottom: 5px; }
+    .dpad-button {
+      width: 50px; height: 50px;
+      background: rgba(255,255,255,0.8);
+      border: 1px solid #999;
+      border-radius: 5px;
+      font-size: 1.5rem;
+      cursor: pointer;
+      text-align: center;
+      line-height: 50px;
+      user-select: none;
+    }
+    .dpad-button:disabled {
+      opacity: 0.3;
+      cursor: default;
+    }
+
+    /* 게임 종료 오버레이 */
+    #overlay {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.85);
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-size: 2rem;
+      z-index: 9999;
+    }
+    #overlay button {
+      margin-top: 20px;
+      padding: 10px 20px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
   <div id="bg"></div>
+
   <div id="info">
     <div id="turn"></div>
     <div id="timer"></div>
-    <div id="message" style="color:red"></div>
+    <div id="message"></div>
   </div>
-  <div id="board"></div>
-  <div id="controls"></div>
+
+  <div id="game-container">
+    <div id="board"></div>
+    <div id="controls"></div>
+  </div>
+
   <script>
-    (function(){
-      const rows = 6, cols = 6;
-      const piecesPerPlayer = 4;
-      let phase = 'placement';
-      let placementCount = 0;
-      const players = [{ positions: [] }, { positions: [] }];
-      const colors = ['red','blue'];
-      let currentPlayer = 0;
-      let selectedPiece = null;
-      let awaitingWall = false;
-      let selectedDest = null;
-      let timerInterval = null;
-      let timeLeft = 90;
-      const horizontalWalls = Array.from({ length: rows+1 }, () => Array(cols).fill(null));
-      const verticalWalls = Array.from({ length: rows }, () => Array(cols+1).fill(null));
+  (function(){
+    const rows = 6, cols = 6, piecesPerPlayer = 4;
+    const colors = ['red','blue'];
+    const names  = ['빨간색','파란색'];
 
-      const boardDiv = document.getElementById('board');
-      const controlsDiv = document.getElementById('controls');
-      const turnDiv = document.getElementById('turn');
-      const timerDiv = document.getElementById('timer');
-      const messageDiv = document.getElementById('message');
+    let phase = 'placement',
+        placementCount = 0,
+        currentPlayer = 0,
+        selectedPiece = null,
+        selectedDest = null,
+        awaitingWall = false,
+        timeLeft = 90,
+        timerInterval = null;
 
-      function initBoard(){
-        const table = document.createElement('table');
-        for(let r=0; r<rows; r++){
-          const tr = document.createElement('tr');
-          for(let c=0; c<cols; c++){
-            const td = document.createElement('td');
-            td.id = `cell-${r}-${c}`;
-            td.dataset.r = r; td.dataset.c = c;
-            td.addEventListener('click', cellClick);
-            tr.appendChild(td);
-          }
-          table.appendChild(tr);
+    const players = [ { positions: [] }, { positions: [] } ];
+    const horizontalWalls = Array.from({ length: rows+1 }, () => Array(cols).fill(null));
+    const verticalWalls   = Array.from({ length: rows   }, () => Array(cols+1).fill(null));
+
+    const boardDiv    = document.getElementById('board'),
+          controlsDiv = document.getElementById('controls'),
+          turnDiv     = document.getElementById('turn'),
+          timerDiv    = document.getElementById('timer'),
+          messageDiv  = document.getElementById('message');
+
+    function initBoard(){
+      const table = document.createElement('table');
+      for(let r=0; r<rows; r++){
+        const tr = document.createElement('tr');
+        for(let c=0; c<cols; c++){
+          const td = document.createElement('td');
+          td.id = `cell-${r}-${c}`;
+          td.dataset.r = r; td.dataset.c = c;
+          td.addEventListener('click', cellClick);
+          tr.appendChild(td);
         }
-        boardDiv.appendChild(table);
-        updateInfo();
+        table.appendChild(tr);
       }
+      boardDiv.appendChild(table);
+      updateInfo();
+    }
 
-      function updateInfo(){
-        if(phase === 'placement'){
-          turnDiv.textContent = `배치 중: 플레이어 ${currentPlayer+1} (${players[currentPlayer].positions.length}/${piecesPerPlayer})`;
-          timerDiv.textContent = '';
-        } else {
-          turnDiv.textContent = `턴: 플레이어 ${currentPlayer+1}`;
-          timerDiv.textContent = awaitingWall ? `남은 시간: ${timeLeft}s` : '';
-        }
-        messageDiv.textContent = '';
+    function updateInfo(){
+      if(phase === 'placement'){
+        turnDiv.textContent  = `배치 중: ${names[currentPlayer]} (${players[currentPlayer].positions.length}/${piecesPerPlayer})`;
+        timerDiv.textContent = '';
+      } else {
+        turnDiv.textContent  = `턴: ${names[currentPlayer]}`;
+        timerDiv.textContent = `남은 시간: ${timeLeft}s`;
       }
+      messageDiv.textContent = '';
+    }
 
-      function drawBoard(){
-        for(let r=0; r<rows; r++){
-          for(let c=0; c<cols; c++){
-            const td = document.getElementById(`cell-${r}-${c}`);
-            td.style.borderTop = horizontalWalls[r][c] ? `4px solid ${horizontalWalls[r][c]}` : '1px solid #999';
-            td.style.borderBottom = horizontalWalls[r+1][c] ? `4px solid ${horizontalWalls[r+1][c]}` : '1px solid #999';
-            td.style.borderLeft = verticalWalls[r][c] ? `4px solid ${verticalWalls[r][c]}` : '1px solid #999';
-            td.style.borderRight = verticalWalls[r][c+1] ? `4px solid ${verticalWalls[r][c+1]}` : '1px solid #999';
-            td.innerHTML = '';
-            td.style.backgroundColor = '';
-          }
+    function drawBoard(){
+      for(let r=0; r<rows; r++){
+        for(let c=0; c<cols; c++){
+          const td = document.getElementById(`cell-${r}-${c}`);
+          td.style.borderTop    = horizontalWalls[r][c]    ? `4px solid ${horizontalWalls[r][c]}`    : '1px solid #999';
+          td.style.borderBottom = horizontalWalls[r+1][c]  ? `4px solid ${horizontalWalls[r+1][c]}`  : '1px solid #999';
+          td.style.borderLeft   = verticalWalls[r][c]      ? `4px solid ${verticalWalls[r][c]}`      : '1px solid #999';
+          td.style.borderRight  = verticalWalls[r][c+1]    ? `4px solid ${verticalWalls[r][c+1]}`    : '1px solid #999';
+          td.innerHTML = ''; td.style.backgroundColor = '';
         }
-        players.forEach((pl,pi)=>{
-          pl.positions.forEach(pos=>{
-            const td = document.getElementById(`cell-${pos.r}-${pos.c}`);
-            const div = document.createElement('div');
-            div.className='piece'; div.style.backgroundColor = colors[pi];
-            td.appendChild(div);
-          });
+      }
+      players.forEach((pl,pi)=>{
+        pl.positions.forEach(pos=>{
+          const td = document.getElementById(`cell-${pos.r}-${pos.c}`);
+          const dot = document.createElement('div');
+          dot.className = 'piece';
+          dot.style.backgroundColor = colors[pi];
+          td.appendChild(dot);
         });
-      }
+      });
+    }
 
-      function cellClick(e){
-        const r = +e.currentTarget.dataset.r;
-        const c = +e.currentTarget.dataset.c;
-        if(phase === 'placement') handlePlacement(r,c);
-        else if(phase === 'move' && !awaitingWall) handleMove(r,c);
-      }
+    function cellClick(e){
+      const r = +e.currentTarget.dataset.r;
+      const c = +e.currentTarget.dataset.c;
+      if(phase === 'placement') handlePlacement(r,c);
+      else if(phase === 'move' && !awaitingWall) handleMove(r,c);
+    }
 
-      function handlePlacement(r,c){
-        if(players.flatMap(p=>p.positions).some(p=>p.r===r&&p.c===c)){
-          messageDiv.textContent = '이미 말이 있습니다.'; return;
+    function handlePlacement(r,c){
+      if(players.flatMap(p=>p.positions).some(p=>p.r===r&&p.c===c)){
+        messageDiv.textContent = '이미 말이 있습니다.'; return;
+      }
+      players[currentPlayer].positions.push({r,c});
+      placementCount++; drawBoard();
+      if(placementCount >= piecesPerPlayer*2){
+        phase = 'move'; currentPlayer = 0;
+        updateInfo(); startTimer();
+      } else {
+        currentPlayer = (currentPlayer+1)%2; updateInfo();
+      }
+    }
+
+    function handleMove(r,c){
+      if(!selectedPiece){
+        const idx = players[currentPlayer].positions.findIndex(p=>p.r===r&&p.c===c);
+        if(idx < 0){ messageDiv.textContent='내 말을 선택하세요.'; return; }
+        selectedPiece = {idx, r, c};
+        highlightMoves();
+        showCancelButton();
+        messageDiv.textContent = '이동할 칸을 선택하세요.';
+      } else {
+        const moves = getAllowedMoves(selectedPiece.r, selectedPiece.c);
+        if(!moves.some(m=>m.r===r&&m.c===c)){
+          messageDiv.textContent='유효하지 않은 이동입니다.'; return;
         }
-        players[currentPlayer].positions.push({r,c});
-        placementCount++;
+        players[currentPlayer].positions[selectedPiece.idx] = {r,c};
         drawBoard();
-        if(placementCount >= piecesPerPlayer*2){
-          phase = 'move'; currentPlayer = 0;
-        } else {
-          const next = (currentPlayer+1)%2;
-          if(players[next].positions.length < piecesPerPlayer) currentPlayer = next;
-        }
+        selectedDest = {r,c}; selectedPiece = null;
+        awaitingWall = true;
+        showWallControls();
         updateInfo();
       }
+    }
 
-      function handleMove(r,c){
-        if(!selectedPiece){
-          const idx = players[currentPlayer].positions.findIndex(p=>p.r===r&&p.c===c);
-          if(idx < 0){ messageDiv.textContent='내 말을 선택하세요.'; return; }
-          selectedPiece = {idx, r, c};
-          highlightMoves(); messageDiv.textContent = '이동할 칸을 선택하세요.';
-        } else {
-          const moves = getAllowedMoves(selectedPiece.r, selectedPiece.c);
-          if(!moves.some(m=>m.r===r&&m.c===c)){
-            messageDiv.textContent='유효하지 않은 이동입니다.'; return;
+    function getAllowedMoves(r,c){
+      const moves = new Set(),
+            add   = (mr,mc)=>{ if(mr>=0&&mr<rows&&mc>=0&&mc<cols) moves.add(`${mr},${mc}`); },
+            isOcc = (rr,cc)=>players.some(pl=>pl.positions.some(p=>p.r===rr&&p.c===cc));
+      add(r,c);
+      [{dr:1,dc:0},{dr:-1,dc:0},{dr:0,dc:1},{dr:0,dc:-1}].forEach(d=>{
+        for(let s=1; s<=2; s++){
+          const mr=r+d.dr*s, mc=c+d.dc*s;
+          if(mr<0||mr>=rows||mc<0||mc>=cols) break;
+          let blocked=false;
+          for(let k=1; k<=s; k++){
+            const pr=r+d.dr*(k-1), pc=c+d.dc*(k-1);
+            if(d.dr? horizontalWalls[d.dr>0?pr+1:pr][pc] : verticalWalls[pr][d.dc>0?pc+1:pc]){
+              blocked=true; break;
+            }
           }
-          players[currentPlayer].positions[selectedPiece.idx] = {r, c};
-          drawBoard(); selectedDest = {r, c}; selectedPiece = null;
-          awaitingWall = true; startTimer(); showWallControls(); updateInfo();
+          if(blocked) break;
+          let occ=false;
+          for(let k=1; k<=s; k++){
+            const rr=r+d.dr*k, cc=c+d.dc*k;
+            if(isOcc(rr,cc)){ occ=true; break; }
+          }
+          if(occ) break;
+          add(mr,mc);
         }
-      }
+      });
+      const jumps = [
+        [{dr:0,dc:1},{dr:1,dc:0}], [{dr:0,dc:1},{dr:-1,dc:0}],
+        [{dr:0,dc:-1},{dr:1,dc:0}], [{dr:0,dc:-1},{dr:-1,dc:0}],
+        [{dr:1,dc:0},{dr:0,dc:1}], [{dr:1,dc:0},{dr:0,dc:-1}],
+        [{dr:-1,dc:0},{dr:0,dc:1}], [{dr:-1,dc:0},{dr:0,dc:-1}]
+      ];
+      jumps.forEach(([f,s])=>{
+        const m1={r:r+f.dr,c:c+f.dc};
+        if(m1.r<0||m1.r>=rows||m1.c<0||m1.c>=cols) return;
+        if(f.dr? horizontalWalls[f.dr>0?r+1:r][c] : verticalWalls[r][f.dc>0?c+1:c]) return;
+        if(isOcc(m1.r,m1.c)) return;
+        const m2={r:m1.r+s.dr,c:m1.c+s.dc};
+        if(m2.r<0||m2.r>=rows||m2.c<0||m2.c>=cols) return;
+        if(s.dr? horizontalWalls[s.dr>0?m1.r+1:m1.r][m1.c] : verticalWalls[m1.r][s.dc>0?m1.c+1:m1.c]) return;
+        if(isOcc(m2.r,m2.c)) return;
+        add(m2.r,m2.c);
+      });
+      return [...moves].map(s=>{ const [mr,mc]=s.split(','); return {r:+mr,c:+mc}; });
+    }
 
-      function getAllowedMoves(r,c){
-        const moves = new Set(); const add = (mr,mc)=>{ if(mr>=0&&mr<rows&&mc>=0&&mc<cols) moves.add(`${mr},${mc}`); };
-        const isOccupied = (rr,cc) => players.some(pl=>pl.positions.some(p=>p.r===rr&&p.c===cc));
-        add(r,c);
-        [{dr:1,dc:0},{dr:-1,dc:0},{dr:0,dc:1},{dr:0,dc:-1}].forEach(d=>{
-          for(let step=1; step<=2; step++){
-            const mr=r+d.dr*step, mc=c+d.dc*step;
-            if(mr<0||mr>=rows||mc<0||mc>=cols) break;
-            let blocked=false;
-            for(let s=1; s<=step; s++){
-              const pr=r+d.dr*(s-1), pc=c+d.dc*(s-1);
-              if(d.dr){ const wr=d.dr>0?pr+1:pr; if(horizontalWalls[wr][pc]){ blocked=true; break; } }
-              else    { const wc=d.dc>0?pc+1:pc; if(verticalWalls[pr][wc]){ blocked=true; break; } }
-            }
-            if(blocked) break;
-            let occ=false;
-            for(let s=1; s<=step; s++){
-              const rr=r+d.dr*s, cc=c+d.dc*s;
-              if(isOccupied(rr,cc)){ occ=true; break; }
-            }
-            if(occ) break;
-            add(mr,mc);
+    function highlightMoves(){
+      drawBoard();
+      getAllowedMoves(selectedPiece.r, selectedPiece.c)
+        .forEach(m=>{
+          document.getElementById(`cell-${m.r}-${m.c}`)
+            .style.backgroundColor = 'rgba(0,255,0,0.3)';
+        });
+    }
+
+    function showCancelButton(){
+      controlsDiv.innerHTML = '<button id="cancel-btn">다른 말 선택</button>';
+      document.getElementById('cancel-btn')
+        .addEventListener('click', () => {
+          selectedPiece = null;
+          drawBoard();
+          messageDiv.textContent = '';
+          controlsDiv.innerHTML = '';
+        });
+    }
+
+    function getAvailableDirs(){
+      const dirs = [];
+      ['up','down','left','right'].forEach(d=>{
+        const {r,c} = selectedDest;
+        let wr, wc, isH;
+        if(d==='up'){ wr=r; wc=c; isH=true; }
+        if(d==='down'){ wr=r+1; wc=c; isH=true; }
+        if(d==='left'){ wr=r; wc=c; isH=false; }
+        if(d==='right'){ wr=r; wc=c+1; isH=false; }
+        if(isH ? !horizontalWalls[wr][wc] : !verticalWalls[wr][wc]){
+          dirs.push(d);
+        }
+      });
+      return dirs;
+    }
+
+    function showWallControls(){
+      controlsDiv.innerHTML = `
+        <div id="dpad">
+          <div></div>
+          <button class="dpad-button" data-dir="up">▲</button>
+          <div></div>
+          <button class="dpad-button" data-dir="left">◀</button>
+          <div></div>
+          <button class="dpad-button" data-dir="right">▶</button>
+          <div></div>
+          <button class="dpad-button" data-dir="down">▼</button>
+          <div></div>
+        </div>`;
+      const avail = getAvailableDirs();
+      controlsDiv.querySelectorAll('.dpad-button').forEach(btn=>{
+        const dir = btn.dataset.dir;
+        if(avail.includes(dir)){
+          btn.disabled = false;
+          btn.addEventListener('click', ()=> placeWall(dir));
+        } else {
+          btn.disabled = true;
+        }
+      });
+    }
+
+    function placeWall(dir){
+      const {r,c} = selectedDest;
+      let wr, wc, isH;
+      if(dir==='up'){ wr=r; wc=c; isH=true; }
+      if(dir==='down'){ wr=r+1; wc=c; isH=true; }
+      if(dir==='left'){ wr=r; wc=c; isH=false; }
+      if(dir==='right'){ wr=r; wc=c+1; isH=false; }
+      if(isH) horizontalWalls[wr][wc] = colors[currentPlayer];
+      else    verticalWalls[wr][wc]   = colors[currentPlayer];
+      endTurn();
+    }
+
+    function startTimer(){
+      clearInterval(timerInterval);
+      timeLeft = 90;
+      timerDiv.textContent = `남은 시간: ${timeLeft}s`;
+      timerInterval = setInterval(()=>{
+        timeLeft--;
+        timerDiv.textContent = `남은 시간: ${timeLeft}s`;
+        if(timeLeft <= 0){
+          clearInterval(timerInterval);
+          if(awaitingWall){
+            messageDiv.textContent = '시간 초과! 랜덤 벽 설치';
+            autoPlaceWall();
+          } else {
+            messageDiv.textContent = '시간 초과! 턴 종료';
+            selectedPiece = null;
+            drawBoard();
+            endTurn();
+          }
+        }
+      }, 1000);
+    }
+
+    function autoPlaceWall(){
+      const dirs = getAvailableDirs();
+      if(dirs.length) placeWall(dirs[Math.floor(Math.random()*dirs.length)]);
+      else            endTurn();
+    }
+
+    function endTurn(){
+      clearInterval(timerInterval);
+      awaitingWall = false;
+      controlsDiv.innerHTML = '';
+      drawBoard();
+      if(checkSeparation()) finishGame();
+      else {
+        currentPlayer = 1 - currentPlayer;
+        updateInfo();
+        startTimer();
+      }
+    }
+
+    function checkSeparation(){
+      const visited = Array.from({ length: rows }, () => Array(cols).fill(false));
+      const q = [ players[0].positions[0] ];
+      visited[q[0].r][q[0].c] = true;
+      while(q.length){
+        const {r,c} = q.shift();
+        [[-1,0],[1,0],[0,-1],[0,1]].forEach(([dr,dc])=>{
+          const nr=r+dr, nc=c+dc;
+          if(nr<0||nr>=rows||nc<0||nc>=cols) return;
+          let blocked = false;
+          if(dr){ const wr = dr>0? r+1 : r; if(horizontalWalls[wr][c]) blocked = true; }
+          else { const wc = dc>0? c+1 : c; if(verticalWalls[r][wc]) blocked = true; }
+          if(!blocked && !visited[nr][nc]){
+            visited[nr][nc] = true;
+            q.push({r:nr,c:nc});
           }
         });
-        [[{dr:0,dc:1},{dr:1,dc:0}],[{dr:0,dc:1},{dr:-1,dc:0}],
-         [{dr:0,dc:-1},{dr:1,dc:0}],[{dr:0,dc:-1},{dr:-1,dc:0}],
-         [{dr:1,dc:0},{dr:0,dc:1}],[{dr:1,dc:0},{dr:0,dc:-1}],
-         [{dr:-1,dc:0},{dr:0,dc:1}],[{dr:-1,dc:0},{dr:0,dc:-1}]
-        ].forEach(([f,s])=>{
-          const m1={r:r+f.dr,c:c+f.dc}; if(m1.r<0||m1.r>=rows||m1.c<0||m1.c>=cols) return;
-          if(f.dr===0){ const vc=f.dc>0?verticalWalls[r][c+1]:verticalWalls[r][c]; if(vc) return; }
-          else{ const hc=f.dr>0?horizontalWalls[r+1][c]:horizontalWalls[r][c]; if(hc) return; }
-          if(isOccupied(m1.r,m1.c)) return;
-          const m2={r:m1.r+s.dr,c:m1.c+s.dc}; if(m2.r<0||m2.r>=rows||m2.c<0||m2.c>=cols) return;
-          if(s.dr===0){ const vc2=s.dc>0?verticalWalls[m1.r][m1.c+1]:verticalWalls[m1.r][m1.c]; if(vc2) return; }
-          else{ const hc2=s.dr>0?horizontalWalls[m1.r+1][m1.c]:horizontalWalls[m1.r][m1.c]; if(hc2) return; }
-          if(isOccupied(m2.r,m2.c)) return;
-          add(m2.r,m2.c);
+      }
+      return !players[1].positions.some(p=>visited[p.r][p.c]);
+    }
+
+    function finishGame(){
+      clearInterval(timerInterval);
+      function bfs(starts){
+        const vis = Array.from({ length: rows }, () => Array(cols).fill(false));
+        const q = [];
+        starts.forEach(s=>{
+          if(!vis[s.r][s.c]){
+            vis[s.r][s.c] = true;
+            q.push({r:s.r,c:s.c});
+          }
         });
-        return [...moves].map(s=>{ const [mr,mc]=s.split(','); return {r:+mr,c:+mc}; });
+        let cnt = q.length;
+        while(q.length){
+          const {r,c} = q.shift();
+          [[-1,0],[1,0],[0,-1],[0,1]].forEach(([dr,dc])=>{
+            const nr=r+dr, nc=c+dc;
+            if(nr<0||nr>=rows||nc<0||nc>=cols) return;
+            if(vis[nr][nc]) return;
+            let blocked = false;
+            if(dr){ const wr = dr>0? r+1 : r; if(horizontalWalls[wr][c]) blocked = true; }
+            else { const wc = dc>0? c+1 : c; if(verticalWalls[r][wc]) blocked = true; }
+            if(blocked) return;
+            vis[nr][nc] = true;
+            cnt++;
+            q.push({r:nr,c:nc});
+          });
+        }
+        return cnt;
       }
-
-      function highlightMoves(){ drawBoard(); getAllowedMoves(selectedPiece.r,selectedPiece.c).forEach(m=>{
-        document.getElementById(`cell-${m.r}-${m.c}`).style.backgroundColor='rgba(0,255,0,0.3)'; }); }
-
-      function getAvailableDirs(){ const dirs=[];
-        ['up','down','left','right'].forEach(d=>{ const {r,c}=selectedDest; let wr,wc,isH;
-          if(d==='up'){wr=r;wc=c;isH=true;} else if(d==='down'){wr=r+1;wc=c;isH=true;}
-          else if(d==='left'){wr=r;wc=c;isH=false;} else{wr=r;wc=c+1;isH=false;}
-          if(isH? !horizontalWalls[wr][wc] : !verticalWalls[wr][wc]) dirs.push(d);
-        }); return dirs; }
-
-      function showWallControls(){ controlsDiv.innerHTML=''; getAvailableDirs().forEach(d=>{
-        const btn=document.createElement('button'); btn.textContent=d; btn.className='button'; btn.addEventListener('click',()=>placeWall(d));
-        controlsDiv.appendChild(btn);
-      }); }
-
-      function placeWall(dir){ const {r,c}=selectedDest; let wr,wc,isH;
-        if(dir==='up'){wr=r;wc=c;isH=true;}else if(dir==='down'){wr=r+1;wc=c;isH=true;}
-        else if(dir==='left'){wr=r;wc=c;isH=false;}else{wr=r;wc=c+1;isH=false;}
-        if(isH) horizontalWalls[wr][wc]=colors[currentPlayer]; else verticalWalls[wr][wc]=colors[currentPlayer]; endTurn(); }
-
-      function startTimer(){ timeLeft=90; timerDiv.textContent=`남은 시간: ${timeLeft}s`;
-        timerInterval=setInterval(()=>{ timeLeft--; timerDiv.textContent=`남은 시간: ${timeLeft}s`;
-          if(timeLeft<=0){ clearInterval(timerInterval); messageDiv.textContent='시간 초과! 랜덤 벽 설치'; autoPlaceWall(); } },1000);
+      const region0 = bfs(players[0].positions);
+      const region1 = bfs(players[1].positions);
+      let resultText;
+      if(region0 > region1) resultText = `${names[0]} 승리!`;
+      else if(region1 > region0) resultText = `${names[1]} 승리!`;
+      else {
+        const largest0 = Math.max(...players[0].positions.map(p=>bfs([p])));
+        const largest1 = Math.max(...players[1].positions.map(p=>bfs([p])));
+        if(largest0 > largest1) resultText = `${names[0]} 승리!`;
+        else if(largest1 > largest0) resultText = `${names[1]} 승리!`;
+        else resultText = '무승부!';
       }
+      const overlay = document.createElement('div');
+      overlay.id = 'overlay';
+      overlay.innerHTML = `
+        <div>게임 종료</div>
+        <div>${names[0]} 총 영역: ${region0}</div>
+        <div>${names[1]} 총 영역: ${region1}</div>
+        <div style="margin-top:20px; font-weight:bold;">${resultText}</div>
+        <button onclick="location.reload()">다시 시작</button>
+      `;
+      document.body.appendChild(overlay);
+    }
 
-      function autoPlaceWall(){ const avail=getAvailableDirs(); if(avail.length) placeWall(avail[Math.floor(Math.random()*avail.length)]); else endTurn(); }
-      function endTurn(){ clearInterval(timerInterval); awaitingWall=false; controlsDiv.innerHTML=''; drawBoard(); if(checkSeparation()) finishGame(); else { currentPlayer=1-currentPlayer; updateInfo(); } }
-
-      function checkSeparation(){ const visited=Array.from({length:rows},()=>Array(cols).fill(false)); const q=[players[0].positions[0]]; visited[q[0].r][q[0].c]=true;
-        while(q.length){ const {r,c}=q.shift(); [[-1,0],[1,0],[0,-1],[0,1]].forEach(d=>{ const nr=r+d[0],nc=c+d[1]; if(nr>=0&&nr<rows&&nc>=0&&nc<cols&&!visited[nr][nc]){
-          let blocked=false; if(d[0]){ const w=d[0]>0?horizontalWalls[r+1][c]:horizontalWalls[r][c]; if(w) blocked=true; } else { const w=d[1]>0?verticalWalls[r][c+1]:verticalWalls[r][c]; if(w) blocked=true; }
-          if(!blocked){ visited[nr][nc]=true; q.push({r:nr,c:nc}); } }}); }
-        return !players[1].positions.some(p=>visited[p.r][p.c]); }
-
-      function finishGame(){ const visited=Array.from({length:rows},()=>Array(cols).fill(false)); const q=[players[0].positions[0]]; visited[q[0].r][q[0].c]=true;
-        while(q.length){ const {r,c}=q.shift(); [[-1,0],[1,0],[0,-1],[0,1]].forEach(d=>{ const nr=r+d[0],nc=c+d[1]; if(nr>=0&&nr<rows&&nc>=0&&nc<cols&&!visited[nr][nc]){
-          let blocked=false; if(d[0]){ const w=d[0]>0?horizontalWalls[r+1][c]:horizontalWalls[r][c]; if(w) blocked=true; } else { const w=d[1]>0?verticalWalls[r][c+1]:verticalWalls[r][c]; if(w) blocked=true; }
-          if(!blocked){ visited[nr][nc]=true; q.push({r:nr,c:nc}); } }}); }
-        let region0=0; for(let rr=0;rr<rows;rr++)for(let cc=0;cc<cols;cc++)if(visited[rr][cc]) region0++;
-        const region1=rows*cols-region0; let result=''; if(region0>region1) result='플레이어 1 승리!'; else if(region1>region0) result='플레이어 2 승리!'; else result='무승부!';
-        messageDiv.textContent=`${result} (영역: 1=${region0}, 2=${region1})`; turnDiv.textContent='게임 종료'; timerDiv.textContent=''; }
-
-      initBoard(); drawBoard();
-    })();
+    initBoard();
+    drawBoard();
+  })();
   </script>
 </body>
 </html>
