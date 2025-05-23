@@ -4,123 +4,93 @@
   <meta charset="UTF-8">
   <title>벽바둑</title>
   <style>
-    /* 전체 폰트 크기 확대 */
     html { font-size: 18px; }
     body {
-      margin: 0;
-      padding: 0;
+      margin: 0; padding: 0;
       font-family: sans-serif;
       background: none;
     }
     #bg {
-      position: fixed;
-      top: 0; left: 0;
-      width: 100vw;
-      height: 100vh;
-      background-image: url('background.png');
-      background-position: center center;
-      background-size: cover;
-      background-repeat: no-repeat;
-      background-attachment: fixed;
-      filter: blur(1px);
-      z-index: -1;
+      position: fixed; top: 0; left: 0;
+      width: 100vw; height: 100vh;
+      background: url('background.png') center/cover no-repeat fixed;
+      filter: blur(1px); z-index: -1;
     }
     #info {
-      position: relative;
-      z-index: 1;
-      text-align: center;
-      margin: 20px;
-      color: #000;
+      position: relative; z-index: 1;
+      text-align: center; margin: 20px; color: #000;
     }
-    #turn, #timer, #message {
-      margin-bottom: 5px;
-    }
+    #turn, #timer, #message { margin-bottom: 5px; }
     #message { color: red; }
 
-    /* 중앙에 보드와 컨트롤러 배치 */
+    /* 중앙 정렬 컨테이너 */
     #game-container {
-      position: relative;
-      z-index: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
+      position: relative; z-index: 1;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
     }
-
     /* 바둑판 */
-    #board {
-      display: block;
-      margin: 0 auto;
-    }
+    #board { margin: 0 auto; }
     table { border-collapse: collapse; }
     td {
       width: 50px; height: 50px;
-      position: relative;
       border: 1px solid #999;
       background: rgba(255,255,255,0.4);
+      position: relative;
     }
     .piece {
       width: 30px; height: 30px;
       border-radius: 50%;
-      position: absolute;
-      top: 10px; left: 10px;
+      position: absolute; top: 10px; left: 10px;
     }
 
-    /* d-pad 컨트롤러 */
+    /* d-pad */
     #controls { margin-top: 20px; }
     #dpad {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      grid-template-rows: 1fr 1fr 1fr;
+      grid-template: repeat(3,1fr) / repeat(3,1fr);
       gap: 5px;
     }
     .dpad-button {
       width: 50px; height: 50px;
       background: rgba(255,255,255,0.8);
-      border: 1px solid #999;
-      border-radius: 5px;
-      font-size: 1.5rem;
-      cursor: pointer;
-      text-align: center;
-      line-height: 50px;
+      border: 1px solid #999; border-radius: 5px;
+      font-size: 1.5rem; cursor: pointer;
+      text-align: center; line-height: 50px;
       user-select: none;
     }
     .dpad-button:disabled {
-      opacity: 0.3;
-      cursor: default;
+      opacity: 0.3; cursor: default;
     }
 
-    /* 게임 종료 오버레이 */
+    /* 오버레이 */
     #overlay {
-      position: fixed;
-      top: 0; left: 0;
+      position: fixed; top: 0; left: 0;
       width: 100%; height: 100%;
       background: rgba(0,0,0,0.85);
       color: #fff;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      font-size: 2rem;
-      z-index: 9999;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      font-size: 2rem; z-index: 9999;
     }
     #overlay button {
-      margin-top: 20px;
-      padding: 10px 20px;
-      font-size: 1rem;
-      cursor: pointer;
+      margin-top: 20px; padding: 10px 20px;
+      font-size: 1rem; cursor: pointer;
+    }
+    /* 영역 맵 */
+    #region-map td {
+      width: 20px; height: 20px;
+      border: 1px solid #444;
     }
   </style>
 </head>
 <body>
   <div id="bg"></div>
-
   <div id="info">
     <div id="turn"></div>
     <div id="timer"></div>
     <div id="message"></div>
   </div>
-
   <div id="game-container">
     <div id="board"></div>
     <div id="controls"></div>
@@ -128,38 +98,30 @@
 
   <script>
   (function(){
-    const rows = 6, cols = 6, piecesPerPlayer = 4;
-    const colors = ['red','blue'];
-    const names  = ['빨간색','파란색'];
+    const rows=6, cols=6, piecesPerPlayer=4;
+    const colors=['red','blue'], names=['빨간색','파란색'];
+    let phase='placement', placementCount=0, currentPlayer=0;
+    let selectedPiece=null, selectedDest=null, awaitingWall=false;
+    let timeLeft=90, timerInterval=null;
 
-    let phase = 'placement',
-        placementCount = 0,
-        currentPlayer = 0,
-        selectedPiece = null,
-        selectedDest = null,
-        awaitingWall = false,
-        timeLeft = 90,
-        timerInterval = null;
+    const players=[{positions:[]},{positions:[]}];
+    const horizontalWalls=Array.from({length:rows+1},()=>Array(cols).fill(null));
+    const verticalWalls=Array.from({length:rows},()=>Array(cols+1).fill(null));
 
-    const players = [ { positions: [] }, { positions: [] } ];
-    const horizontalWalls = Array.from({ length: rows+1 }, () => Array(cols).fill(null));
-    const verticalWalls   = Array.from({ length: rows   }, () => Array(cols+1).fill(null));
-
-    const boardDiv    = document.getElementById('board'),
-          controlsDiv = document.getElementById('controls'),
-          turnDiv     = document.getElementById('turn'),
-          timerDiv    = document.getElementById('timer'),
-          messageDiv  = document.getElementById('message');
+    const boardDiv=document.getElementById('board'),
+          controlsDiv=document.getElementById('controls'),
+          turnDiv=document.getElementById('turn'),
+          timerDiv=document.getElementById('timer'),
+          messageDiv=document.getElementById('message');
 
     function initBoard(){
-      const table = document.createElement('table');
-      for(let r=0; r<rows; r++){
-        const tr = document.createElement('tr');
-        for(let c=0; c<cols; c++){
-          const td = document.createElement('td');
-          td.id = `cell-${r}-${c}`;
-          td.dataset.r = r; td.dataset.c = c;
-          td.addEventListener('click', cellClick);
+      const table=document.createElement('table');
+      for(let r=0;r<rows;r++){
+        const tr=document.createElement('tr');
+        for(let c=0;c<cols;c++){
+          const td=document.createElement('td');
+          td.id=`cell-${r}-${c}`; td.dataset.r=r; td.dataset.c=c;
+          td.addEventListener('click',cellClick);
           tr.appendChild(td);
         }
         table.appendChild(tr);
@@ -169,121 +131,115 @@
     }
 
     function updateInfo(){
-      if(phase === 'placement'){
-        turnDiv.textContent  = `배치 중: ${names[currentPlayer]} (${players[currentPlayer].positions.length}/${piecesPerPlayer})`;
-        timerDiv.textContent = '';
+      if(phase==='placement'){
+        turnDiv.textContent=`배치 중: ${names[currentPlayer]} (${players[currentPlayer].positions.length}/${piecesPerPlayer})`;
+        timerDiv.textContent='';
       } else {
-        turnDiv.textContent  = `턴: ${names[currentPlayer]}`;
-        timerDiv.textContent = `남은 시간: ${timeLeft}s`;
+        turnDiv.textContent=`턴: ${names[currentPlayer]}`;
+        timerDiv.textContent=`남은 시간: ${timeLeft}s`;
       }
-      messageDiv.textContent = '';
+      messageDiv.textContent='';
     }
 
     function drawBoard(){
-      for(let r=0; r<rows; r++){
-        for(let c=0; c<cols; c++){
-          const td = document.getElementById(`cell-${r}-${c}`);
-          td.style.borderTop    = horizontalWalls[r][c]    ? `4px solid ${horizontalWalls[r][c]}`    : '1px solid #999';
-          td.style.borderBottom = horizontalWalls[r+1][c]  ? `4px solid ${horizontalWalls[r+1][c]}`  : '1px solid #999';
-          td.style.borderLeft   = verticalWalls[r][c]      ? `4px solid ${verticalWalls[r][c]}`      : '1px solid #999';
-          td.style.borderRight  = verticalWalls[r][c+1]    ? `4px solid ${verticalWalls[r][c+1]}`    : '1px solid #999';
-          td.innerHTML = ''; td.style.backgroundColor = '';
+      for(let r=0;r<rows;r++){
+        for(let c=0;c<cols;c++){
+          const td=document.getElementById(`cell-${r}-${c}`);
+          td.style.borderTop    = horizontalWalls[r][c]? `4px solid ${horizontalWalls[r][c]}`:'1px solid #999';
+          td.style.borderBottom = horizontalWalls[r+1][c]? `4px solid ${horizontalWalls[r+1][c]}`:'1px solid #999';
+          td.style.borderLeft   = verticalWalls[r][c]?   `4px solid ${verticalWalls[r][c]}`   :'1px solid #999';
+          td.style.borderRight  = verticalWalls[r][c+1]? `4px solid ${verticalWalls[r][c+1]}`:'1px solid #999';
+          td.innerHTML=''; td.style.backgroundColor='';
         }
       }
       players.forEach((pl,pi)=>{
         pl.positions.forEach(pos=>{
-          const td = document.getElementById(`cell-${pos.r}-${pos.c}`);
-          const dot = document.createElement('div');
-          dot.className = 'piece';
-          dot.style.backgroundColor = colors[pi];
+          const td=document.getElementById(`cell-${pos.r}-${pos.c}`);
+          const dot=document.createElement('div');
+          dot.className='piece'; dot.style.backgroundColor=colors[pi];
           td.appendChild(dot);
         });
       });
     }
 
     function cellClick(e){
-      const r = +e.currentTarget.dataset.r;
-      const c = +e.currentTarget.dataset.c;
-      if(phase === 'placement') handlePlacement(r,c);
-      else if(phase === 'move' && !awaitingWall) handleMove(r,c);
+      const r=+e.currentTarget.dataset.r, c=+e.currentTarget.dataset.c;
+      if(phase==='placement') handlePlacement(r,c);
+      else if(phase==='move'&&!awaitingWall) handleMove(r,c);
     }
 
     function handlePlacement(r,c){
       if(players.flatMap(p=>p.positions).some(p=>p.r===r&&p.c===c)){
-        messageDiv.textContent = '이미 말이 있습니다.'; return;
+        messageDiv.textContent='이미 말이 있습니다.'; return;
       }
       players[currentPlayer].positions.push({r,c});
       placementCount++; drawBoard();
-      if(placementCount >= piecesPerPlayer*2){
-        phase = 'move'; currentPlayer = 0;
+      if(placementCount>=piecesPerPlayer*2){
+        phase='move'; currentPlayer=0;
         updateInfo(); startTimer();
       } else {
-        currentPlayer = (currentPlayer+1)%2; updateInfo();
+        currentPlayer=(currentPlayer+1)%2; updateInfo();
       }
     }
 
     function handleMove(r,c){
       if(!selectedPiece){
-        const idx = players[currentPlayer].positions.findIndex(p=>p.r===r&&p.c===c);
-        if(idx < 0){ messageDiv.textContent='내 말을 선택하세요.'; return; }
-        selectedPiece = {idx, r, c};
-        highlightMoves();
-        showCancelButton();
-        messageDiv.textContent = '이동할 칸을 선택하세요.';
+        const idx=players[currentPlayer].positions.findIndex(p=>p.r===r&&p.c===c);
+        if(idx<0){ messageDiv.textContent='내 말을 선택하세요.'; return; }
+        selectedPiece={idx,r,c};
+        highlightMoves(); showCancelButton();
+        messageDiv.textContent='이동할 칸을 선택하세요.';
       } else {
-        const moves = getAllowedMoves(selectedPiece.r, selectedPiece.c);
+        const moves=getAllowedMoves(selectedPiece.r,selectedPiece.c);
         if(!moves.some(m=>m.r===r&&m.c===c)){
           messageDiv.textContent='유효하지 않은 이동입니다.'; return;
         }
-        players[currentPlayer].positions[selectedPiece.idx] = {r,c};
+        players[currentPlayer].positions[selectedPiece.idx]={r,c};
         drawBoard();
-        selectedDest = {r,c}; selectedPiece = null;
-        awaitingWall = true;
-        showWallControls();
-        updateInfo();
+        selectedDest={r,c}; selectedPiece=null;
+        awaitingWall=true; showWallControls(); updateInfo();
       }
     }
 
     function getAllowedMoves(r,c){
-      const moves = new Set(),
-            add   = (mr,mc)=>{ if(mr>=0&&mr<rows&&mc>=0&&mc<cols) moves.add(`${mr},${mc}`); },
-            isOcc = (rr,cc)=>players.some(pl=>pl.positions.some(p=>p.r===rr&&p.c===cc));
+      const moves=new Set(),
+            isOcc=(rr,cc)=>players.some(pl=>pl.positions.some(p=>p.r===rr&&p.c===cc)),
+            add=(mr,mc)=>{ if(mr>=0&&mr<rows&&mc>=0&&mc<cols) moves.add(`${mr},${mc}`); };
       add(r,c);
       [{dr:1,dc:0},{dr:-1,dc:0},{dr:0,dc:1},{dr:0,dc:-1}].forEach(d=>{
-        for(let s=1; s<=2; s++){
+        for(let s=1;s<=2;s++){
           const mr=r+d.dr*s, mc=c+d.dc*s;
           if(mr<0||mr>=rows||mc<0||mc>=cols) break;
           let blocked=false;
-          for(let k=1; k<=s; k++){
+          for(let k=1;k<=s;k++){
             const pr=r+d.dr*(k-1), pc=c+d.dc*(k-1);
-            if(d.dr? horizontalWalls[d.dr>0?pr+1:pr][pc] : verticalWalls[pr][d.dc>0?pc+1:pc]){
+            if(d.dr? horizontalWalls[d.dr>0?pr+1:pr][pc]: verticalWalls[pr][d.dc>0?pc+1:pc]){
               blocked=true; break;
             }
           }
           if(blocked) break;
           let occ=false;
-          for(let k=1; k<=s; k++){
-            const rr=r+d.dr*k, cc=c+d.dc*k;
-            if(isOcc(rr,cc)){ occ=true; break; }
+          for(let k=1;k<=s;k++){
+            if(isOcc(r+d.dr*k,c+d.dc*k)){ occ=true; break; }
           }
           if(occ) break;
           add(mr,mc);
         }
       });
-      const jumps = [
-        [{dr:0,dc:1},{dr:1,dc:0}], [{dr:0,dc:1},{dr:-1,dc:0}],
-        [{dr:0,dc:-1},{dr:1,dc:0}], [{dr:0,dc:-1},{dr:-1,dc:0}],
+      const jumps=[
+        [{dr:0,dc:1},{dr:1,dc:0}],[{dr:0,dc:1},{dr:-1,dc:0}],
+        [{dr:0,dc:-1},{dr:1,dc:0}],[{dr:0,dc:-1},{dr:-1,dc:0}],
         [{dr:1,dc:0},{dr:0,dc:1}], [{dr:1,dc:0},{dr:0,dc:-1}],
         [{dr:-1,dc:0},{dr:0,dc:1}], [{dr:-1,dc:0},{dr:0,dc:-1}]
       ];
       jumps.forEach(([f,s])=>{
         const m1={r:r+f.dr,c:c+f.dc};
         if(m1.r<0||m1.r>=rows||m1.c<0||m1.c>=cols) return;
-        if(f.dr? horizontalWalls[f.dr>0?r+1:r][c] : verticalWalls[r][f.dc>0?c+1:c]) return;
+        if(f.dr? horizontalWalls[f.dr>0?r+1:r][c]: verticalWalls[r][f.dc>0?c+1:c]) return;
         if(isOcc(m1.r,m1.c)) return;
         const m2={r:m1.r+s.dr,c:m1.c+s.dc};
         if(m2.r<0||m2.r>=rows||m2.c<0||m2.c>=cols) return;
-        if(s.dr? horizontalWalls[s.dr>0?m1.r+1:m1.r][m1.c] : verticalWalls[m1.r][s.dc>0?m1.c+1:m1.c]) return;
+        if(s.dr? horizontalWalls[s.dr>0?m1.r+1:m1.r][m1.c]: verticalWalls[m1.r][s.dc>0?m1.c+1:m1.c]) return;
         if(isOcc(m2.r,m2.c)) return;
         add(m2.r,m2.c);
       });
@@ -292,42 +248,34 @@
 
     function highlightMoves(){
       drawBoard();
-      getAllowedMoves(selectedPiece.r, selectedPiece.c)
-        .forEach(m=>{
-          document.getElementById(`cell-${m.r}-${m.c}`)
-            .style.backgroundColor = 'rgba(0,255,0,0.3)';
-        });
+      getAllowedMoves(selectedPiece.r,selectedPiece.c).forEach(m=>{
+        document.getElementById(`cell-${m.r}-${m.c}`).style.backgroundColor='rgba(0,255,0,0.3)';
+      });
     }
 
     function showCancelButton(){
-      controlsDiv.innerHTML = '<button id="cancel-btn">다른 말 선택</button>';
-      document.getElementById('cancel-btn')
-        .addEventListener('click', () => {
-          selectedPiece = null;
-          drawBoard();
-          messageDiv.textContent = '';
-          controlsDiv.innerHTML = '';
-        });
+      controlsDiv.innerHTML='<button id="cancel-btn">다른 말 선택</button>';
+      document.getElementById('cancel-btn').onclick=()=>{
+        selectedPiece=null; drawBoard(); messageDiv.textContent=''; controlsDiv.innerHTML='';
+      };
     }
 
     function getAvailableDirs(){
-      const dirs = [];
+      const dirs=[];
       ['up','down','left','right'].forEach(d=>{
-        const {r,c} = selectedDest;
+        const {r,c}=selectedDest;
         let wr, wc, isH;
-        if(d==='up'){ wr=r; wc=c; isH=true; }
-        if(d==='down'){ wr=r+1; wc=c; isH=true; }
-        if(d==='left'){ wr=r; wc=c; isH=false; }
-        if(d==='right'){ wr=r; wc=c+1; isH=false; }
-        if(isH ? !horizontalWalls[wr][wc] : !verticalWalls[wr][wc]){
-          dirs.push(d);
-        }
+        if(d==='up'){wr=r;wc=c;isH=true;}
+        if(d==='down'){wr=r+1;wc=c;isH=true;}
+        if(d==='left'){wr=r;wc=c;isH=false;}
+        if(d==='right'){wr=r;wc=c+1;isH=false;}
+        if(isH? !horizontalWalls[wr][wc]: !verticalWalls[wr][wc]) dirs.push(d);
       });
       return dirs;
     }
 
     function showWallControls(){
-      controlsDiv.innerHTML = `
+      controlsDiv.innerHTML=`
         <div id="dpad">
           <div></div>
           <button class="dpad-button" data-dir="up">▲</button>
@@ -339,147 +287,124 @@
           <button class="dpad-button" data-dir="down">▼</button>
           <div></div>
         </div>`;
-      const avail = getAvailableDirs();
+      const avail=getAvailableDirs();
       controlsDiv.querySelectorAll('.dpad-button').forEach(btn=>{
-        const dir = btn.dataset.dir;
-        if(avail.includes(dir)){
-          btn.disabled = false;
-          btn.addEventListener('click', ()=> placeWall(dir));
-        } else {
-          btn.disabled = true;
-        }
+        const d=btn.dataset.dir;
+        btn.disabled=!avail.includes(d);
+        if(!btn.disabled) btn.onclick=()=>placeWall(d);
       });
     }
 
     function placeWall(dir){
-      const {r,c} = selectedDest;
+      const {r,c}=selectedDest;
       let wr, wc, isH;
-      if(dir==='up'){ wr=r; wc=c; isH=true; }
-      if(dir==='down'){ wr=r+1; wc=c; isH=true; }
-      if(dir==='left'){ wr=r; wc=c; isH=false; }
-      if(dir==='right'){ wr=r; wc=c+1; isH=false; }
-      if(isH) horizontalWalls[wr][wc] = colors[currentPlayer];
-      else    verticalWalls[wr][wc]   = colors[currentPlayer];
+      if(dir==='up'){wr=r;wc=c;isH=true;}
+      if(dir==='down'){wr=r+1;wc=c;isH=true;}
+      if(dir==='left'){wr=r;wc=c;isH=false;}
+      if(dir==='right'){wr=r;wc=c+1;isH=false;}
+      if(isH) horizontalWalls[wr][wc]=colors[currentPlayer];
+      else    verticalWalls[wr][wc]  =colors[currentPlayer];
       endTurn();
     }
 
     function startTimer(){
       clearInterval(timerInterval);
-      timeLeft = 90;
-      timerDiv.textContent = `남은 시간: ${timeLeft}s`;
-      timerInterval = setInterval(()=>{
-        timeLeft--;
-        timerDiv.textContent = `남은 시간: ${timeLeft}s`;
-        if(timeLeft <= 0){
+      timeLeft=90; timerDiv.textContent=`남은 시간: ${timeLeft}s`;
+      timerInterval=setInterval(()=>{
+        timeLeft--; timerDiv.textContent=`남은 시간: ${timeLeft}s`;
+        if(timeLeft<=0){
           clearInterval(timerInterval);
           if(awaitingWall){
-            messageDiv.textContent = '시간 초과! 랜덤 벽 설치';
-            autoPlaceWall();
+            messageDiv.textContent='시간 초과! 랜덤 벽 설치'; autoPlaceWall();
           } else {
-            messageDiv.textContent = '시간 초과! 턴 종료';
-            selectedPiece = null;
-            drawBoard();
-            endTurn();
+            messageDiv.textContent='시간 초과! 턴 종료';
+            selectedPiece=null; drawBoard(); endTurn();
           }
         }
-      }, 1000);
+      },1000);
     }
 
     function autoPlaceWall(){
-      const dirs = getAvailableDirs();
-      if(dirs.length) placeWall(dirs[Math.floor(Math.random()*dirs.length)]);
-      else            endTurn();
+      const dirs=getAvailableDirs();
+      dirs.length? placeWall(dirs[Math.floor(Math.random()*dirs.length)]): endTurn();
+    }
+
+    function getVisited(starts){
+      const vis=Array.from({length:rows},()=>Array(cols).fill(false)), q=[];
+      starts.forEach(s=>{
+        if(!vis[s.r][s.c]){ vis[s.r][s.c]=true; q.push({r:s.r,c:s.c}); }
+      });
+      while(q.length){
+        const {r,c}=q.shift();
+        [[-1,0],[1,0],[0,-1],[0,1]].forEach(([dr,dc])=>{
+          const nr=r+dr, nc=c+dc;
+          if(nr<0||nr>=rows||nc<0||nc>=cols) return;
+          if(vis[nr][nc]) return;
+          const blocked = dr? horizontalWalls[dr>0?r+1:r][c] : verticalWalls[r][dc>0?c+1:c];
+          if(!blocked){
+            vis[nr][nc]=true; q.push({r:nr,c:nc});
+          }
+        });
+      }
+      return vis;
     }
 
     function endTurn(){
       clearInterval(timerInterval);
-      awaitingWall = false;
-      controlsDiv.innerHTML = '';
-      drawBoard();
-      if(checkSeparation()) finishGame();
-      else {
-        currentPlayer = 1 - currentPlayer;
-        updateInfo();
-        startTimer();
+      awaitingWall=false; controlsDiv.innerHTML=''; drawBoard();
+      // 전 영역 커버 여부 확인
+      const vis0=getVisited(players[0].positions),
+            vis1=getVisited(players[1].positions);
+      const count0=vis0.flat().filter(v=>v).length,
+            count1=vis1.flat().filter(v=>v).length;
+      if(count0+count1===rows*cols){
+        finishGame(vis0,vis1,count0,count1);
+      } else {
+        currentPlayer=1-currentPlayer; updateInfo(); startTimer();
       }
     }
 
-    function checkSeparation(){
-      const visited = Array.from({ length: rows }, () => Array(cols).fill(false));
-      const q = [ players[0].positions[0] ];
-      visited[q[0].r][q[0].c] = true;
-      while(q.length){
-        const {r,c} = q.shift();
-        [[-1,0],[1,0],[0,-1],[0,1]].forEach(([dr,dc])=>{
-          const nr=r+dr, nc=c+dc;
-          if(nr<0||nr>=rows||nc<0||nc>=cols) return;
-          let blocked = false;
-          if(dr){ const wr = dr>0? r+1 : r; if(horizontalWalls[wr][c]) blocked = true; }
-          else { const wc = dc>0? c+1 : c; if(verticalWalls[r][wc]) blocked = true; }
-          if(!blocked && !visited[nr][nc]){
-            visited[nr][nc] = true;
-            q.push({r:nr,c:nc});
-          }
-        });
-      }
-      return !players[1].positions.some(p=>visited[p.r][p.c]);
-    }
-
-    function finishGame(){
+    function finishGame(vis0,vis1,count0,count1){
       clearInterval(timerInterval);
-      function bfs(starts){
-        const vis = Array.from({ length: rows }, () => Array(cols).fill(false));
-        const q = [];
-        starts.forEach(s=>{
-          if(!vis[s.r][s.c]){
-            vis[s.r][s.c] = true;
-            q.push({r:s.r,c:s.c});
-          }
-        });
-        let cnt = q.length;
-        while(q.length){
-          const {r,c} = q.shift();
-          [[-1,0],[1,0],[0,-1],[0,1]].forEach(([dr,dc])=>{
-            const nr=r+dr, nc=c+dc;
-            if(nr<0||nr>=rows||nc<0||nc>=cols) return;
-            if(vis[nr][nc]) return;
-            let blocked = false;
-            if(dr){ const wr = dr>0? r+1 : r; if(horizontalWalls[wr][c]) blocked = true; }
-            else { const wc = dc>0? c+1 : c; if(verticalWalls[r][wc]) blocked = true; }
-            if(blocked) return;
-            vis[nr][nc] = true;
-            cnt++;
-            q.push({r:nr,c:nc});
-          });
-        }
-        return cnt;
-      }
-      const region0 = bfs(players[0].positions);
-      const region1 = bfs(players[1].positions);
-      let resultText;
-      if(region0 > region1) resultText = `${names[0]} 승리!`;
-      else if(region1 > region0) resultText = `${names[1]} 승리!`;
-      else {
-        const largest0 = Math.max(...players[0].positions.map(p=>bfs([p])));
-        const largest1 = Math.max(...players[1].positions.map(p=>bfs([p])));
-        if(largest0 > largest1) resultText = `${names[0]} 승리!`;
-        else if(largest1 > largest0) resultText = `${names[1]} 승리!`;
-        else resultText = '무승부!';
-      }
-      const overlay = document.createElement('div');
-      overlay.id = 'overlay';
-      overlay.innerHTML = `
+      let result;
+      if(count0>count1) result=`${names[0]} 승리!`;
+      else if(count1>count0) result=`${names[1]} 승리!`;
+      else result='무승부!';
+
+      const overlay=document.createElement('div'); overlay.id='overlay';
+      overlay.innerHTML=`
         <div>게임 종료</div>
-        <div>${names[0]} 총 영역: ${region0}</div>
-        <div>${names[1]} 총 영역: ${region1}</div>
-        <div style="margin-top:20px; font-weight:bold;">${resultText}</div>
-        <button onclick="location.reload()">다시 시작</button>
+        <div>${names[0]} 총 영역: ${count0}</div>
+        <div>${names[1]} 총 영역: ${count1}</div>
+        <div style="margin-top:20px; font-weight:bold;">${result}</div>
+        <button id="restart-btn">다시 시작</button>
+        <div style="margin-top:20px;">영역 분포</div>
       `;
       document.body.appendChild(overlay);
+      document.getElementById('restart-btn').onclick=()=>location.reload();
+
+      // 영역 해칭 맵
+      const mapDiv=document.createElement('div'),
+            tbl=document.createElement('table');
+      tbl.id='region-map';
+      for(let r=0;r<rows;r++){
+        const tr=document.createElement('tr');
+        for(let c=0;c<cols;c++){
+          const td=document.createElement('td');
+          if(vis0[r][c]){
+            td.style.background='repeating-linear-gradient(45deg, rgba(255,0,0,0.4) 0 2px, transparent 2px 4px)';
+          } else if(vis1[r][c]){
+            td.style.background='repeating-linear-gradient(45deg, rgba(0,0,255,0.4) 0 2px, transparent 2px 4px)';
+          }
+          tr.appendChild(td);
+        }
+        tbl.appendChild(tr);
+      }
+      mapDiv.appendChild(tbl);
+      overlay.appendChild(mapDiv);
     }
 
-    initBoard();
-    drawBoard();
+    initBoard(); drawBoard();
   })();
   </script>
 </body>
